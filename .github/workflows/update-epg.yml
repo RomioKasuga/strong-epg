@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Download, merge and compress EPG
-        run: python merge_epg.py
+        run: python merge_epg_strong.py
 
       - name: Validate compressed XML
         run: |

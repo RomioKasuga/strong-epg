@@ -1,0 +1,46 @@
+name: Test Strong EPG (sans publication)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-strong-epg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate test EPG separately
+        run: |
+          mkdir -p /tmp/strong-epg-test
+          cp merge_epg_strong.py correspondances_strong_epg.csv /tmp/strong-epg-test/
+          cd /tmp/strong-epg-test
+          python merge_epg_strong.py
+          python - <<'PY'
+          import gzip
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+          path = '/tmp/strong-epg-test/epg.xml.gz'
+          with gzip.open(path, 'rb') as f:
+              counts = Counter()
+              for event, elem in ET.iterparse(f, events=('end',)):
+                  if elem.tag in ('channel', 'programme'):
+                      counts[elem.tag] += 1
+                  elem.clear()
+          print('Validation XMLTV OK:', dict(counts))
+          assert counts['channel'] > 0 and counts['programme'] > 0
+          PY
+
+      - name: Save test log summary
+        if: always()
+        run: echo 'Test terminé. Consulter les logs de génération et validation.'

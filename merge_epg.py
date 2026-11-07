@@ -1,6 +1,7 @@
 
 import gzip
-import io
+import shutil
+import tempfile
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter
@@ -13,7 +14,8 @@ SOURCES = {
     "US": "https://iptv-epg.org/files/epg-us.xml",
 }
 
-OUTPUT = Path("epg.xml")
+OUTPUT = Path("epg.xml.gz")
+MAX_GITHUB_SIZE = 95 * 1024 * 1024
 
 
 def download_xml(country, url):
@@ -24,7 +26,7 @@ def download_xml(country, url):
         headers={"User-Agent": "Mozilla/5.0 StrongEPG/1.0"},
     )
 
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(request, timeout=180) as response:
         content = response.read()
 
     if content.startswith(b"\x1f\x8b"):
@@ -34,19 +36,17 @@ def download_xml(country, url):
 
     if root.tag != "tv":
         raise ValueError(
-            f"[{country}] Format XMLTV invalide : racine {root.tag}"
+            f"[{country}] Racine XMLTV invalide : {root.tag}"
         )
 
     channels = root.findall("channel")
     programmes = root.findall("programme")
 
     if not channels or not programmes:
-        raise ValueError(
-            f"[{country}] Guide vide ou sans programmes"
-        )
+        raise ValueError(f"[{country}] Guide vide")
 
     print(
-        f"[{country}] OK : {len(channels)} chaînes, "
+        f"[{country}] {len(channels)} chaînes, "
         f"{len(programmes)} programmes",
         flush=True,
     )
@@ -55,89 +55,100 @@ def download_xml(country, url):
 
 
 def main():
-    all_channels = {}
-    all_programmes = []
-    failures = []
+    channels = {}
+    programmes = []
+    seen = set()
     stats = Counter()
+    failures = []
 
     for country, url in SOURCES.items():
         try:
-            channels, programmes = download_xml(country, url)
+            source_channels, source_programmes = download_xml(
+                country, url
+            )
 
-            for channel in channels:
+            for channel in source_channels:
                 channel_id = channel.get("id")
 
-                if channel_id and channel_id not in all_channels:
-                    all_channels[channel_id] = channel
+                if channel_id and channel_id not in channels:
+                    channels[channel_id] = channel
 
-            for programme in programmes:
+            for programme in source_programmes:
                 channel_id = programme.get("channel")
+                key = (
+                    channel_id,
+                    programme.get("start"),
+                    programme.get("stop"),
+                )
 
-                if channel_id:
-                    all_programmes.append(programme)
+                if channel_id and key not in seen:
+                    seen.add(key)
+                    programmes.append(programme)
 
-            stats[country] = len(programmes)
+            stats[country] = len(source_programmes)
 
         except Exception as error:
             failures.append(f"{country}: {error}")
             print(f"[{country}] ERREUR : {error}", flush=True)
 
-    # Ne jamais publier un guide partiel.
     if failures:
         raise RuntimeError(
             "Fusion annulée :\n" + "\n".join(failures)
         )
 
-    root = ET.Element(
-        "tv",
-        {"generator-info-name": "Strong EPG Merger"},
-    )
-
-    for channel in all_channels.values():
-        root.append(channel)
-
-    # Supprime les programmes identiques.
-    seen = set()
-    unique_programmes = []
-
-    for programme in all_programmes:
-        key = (
-            programme.get("channel"),
-            programme.get("start"),
-            programme.get("stop"),
-        )
-
-        if key not in seen:
-            seen.add(key)
-            unique_programmes.append(programme)
-
-    unique_programmes.sort(
+    programmes.sort(
         key=lambda p: (
             p.get("channel", ""),
             p.get("start", ""),
         )
     )
 
-    for programme in unique_programmes:
-        if programme.get("channel") in all_channels:
+    root = ET.Element(
+        "tv",
+        {"generator-info-name": "Strong EPG Merger"},
+    )
+
+    for channel in channels.values():
+        root.append(channel)
+
+    for programme in programmes:
+        if programme.get("channel") in channels:
             root.append(programme)
 
-    tree = ET.ElementTree(root)
+    print("\nCompression GZIP en cours...", flush=True)
 
-    with OUTPUT.open("wb") as file:
-        tree.write(
-            file,
-            encoding="utf-8",
-            xml_declaration=True,
-        )
+    with OUTPUT.open("wb") as raw_file:
+        with gzip.GzipFile(
+            filename="",
+            mode="wb",
+            fileobj=raw_file,
+            compresslevel=9,
+            mtime=0,
+        ) as compressed_file:
+            ET.ElementTree(root).write(
+                compressed_file,
+                encoding="utf-8",
+                xml_declaration=True,
+            )
+
+    size = OUTPUT.stat().st_size
 
     print("\n=== FUSION TERMINÉE ===")
-    print(f"Chaînes : {len(all_channels)}")
-    print(f"Programmes : {len(unique_programmes)}")
-    print(f"Fichier : {OUTPUT.resolve()}")
+    print(f"Chaînes : {len(channels)}")
+    print(f"Programmes : {len(programmes)}")
+    print(f"Fichier : {OUTPUT}")
+    print(f"Taille compressée : {size / 1024 / 1024:.2f} Mo")
 
     for country, count in stats.items():
         print(f"{country} : {count} programmes")
+
+    if size > MAX_GITHUB_SIZE:
+        raise RuntimeError(
+            "Fichier compressé encore trop volumineux "
+            "pour GitHub. Il faudra adapter la publication."
+        )
+
+    print("Compression validée !")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+
+{
+  "name": "Strong EPG",
+  "countries": ["fr", "pt", "uk", "us"],
+  "days": 7,
+  "output": "epg.xml",
+  "update": "daily"
+}

@@ -10,6 +10,7 @@ import os
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SOURCES = {
@@ -18,6 +19,11 @@ SOURCES = {
     "GB": "https://iptv-epg.org/files/epg-gb.xml",
     "US": "https://iptv-epg.org/files/epg-us.xml",
 }
+EXTRA_FR_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_FR1.xml.gz"
+EXTRA_PT_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_PT1.xml.gz"
+EXTRA_UK_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"
+EXTRA_US_SPORTS_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_US_SPORTS1.xml.gz"
+EXTRA_US2_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz"
 OUTPUT = Path("epg.xml.gz")
 CSV_PATH = Path("correspondances_strong_epg.csv")
 MAX_SIZE = 95 * 1024 * 1024
@@ -80,6 +86,31 @@ def main():
             cid = channel.get("id")
             if cid and cid not in channels:
                 channels[cid] = channel
+        # The general US feed is very large: retain only the next 48 hours.
+        # Keep other countries and specialized feeds at their full coverage.
+        if country == "US":
+            now = datetime.now(timezone.utc)
+            cutoff = now + timedelta(hours=48)
+            filtered = []
+            for programme in source_programmes:
+                raw_start = programme.get("start") or ""
+                try:
+                    # XMLTV timestamps may include a timezone offset.
+                    when = datetime.strptime(raw_start[:14], "%Y%m%d%H%M%S")
+                    offset_text = raw_start[15:].strip()
+                    if len(offset_text) == 5 and offset_text[0] in "+-" and offset_text[1:].isdigit():
+                        sign = 1 if offset_text[0] == "+" else -1
+                        offset = timedelta(hours=int(offset_text[1:3]), minutes=int(offset_text[3:5]))
+                        when = when.replace(tzinfo=timezone(sign * offset))
+                    else:
+                        when = when.replace(tzinfo=timezone.utc)
+                    when = when.astimezone(timezone.utc)
+                except (ValueError, OverflowError):
+                    continue
+                if now - timedelta(hours=2) <= when <= cutoff:
+                    filtered.append(programme)
+            print(f"[US] 48h window: {len(filtered)} / {len(source_programmes)} programmes", flush=True)
+            source_programmes = filtered
         for programme in source_programmes:
             cid = programme.get("channel")
             key = (cid, programme.get("start"), programme.get("stop"))
@@ -87,6 +118,24 @@ def main():
                 seen.add(key)
                 programmes.append(programme)
         stats[country] = len(source_programmes)
+
+    # Sources complémentaires optionnelles : FR et PT.
+    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE), ("UK-EPGShare", EXTRA_UK_SOURCE), ("US-Sports-EPGShare", EXTRA_US_SPORTS_SOURCE), ("US2-EPGShare", EXTRA_US2_SOURCE)):
+        try:
+            extra_channels, extra_programmes = download(extra_name, extra_url)
+            for channel in extra_channels:
+                cid = channel.get("id")
+                if cid and cid not in channels:
+                    channels[cid] = channel
+            for programme in extra_programmes:
+                cid = programme.get("channel")
+                key = (cid, programme.get("start"), programme.get("stop"))
+                if cid in channels and key not in seen:
+                    seen.add(key)
+                    programmes.append(programme)
+            stats[extra_name] = len(extra_programmes)
+        except Exception as exc:
+            print(f"[{extra_name}] Source optionnelle indisponible : {exc}", flush=True)
 
     aliases = read_verified_aliases()
     aliases.update(VERIFIED)

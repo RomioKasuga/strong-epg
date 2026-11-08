@@ -1,0 +1,44 @@
+name: Test EPG FR enrichment
+
+on:
+  pull_request:
+    paths:
+      - 'merge_epg_strong.py'
+      - 'correspondances_strong_epg.csv'
+      - '.github/workflows/test-epg-fr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-epg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate EPG without publishing
+        run: python merge_epg_strong.py
+      - name: Check XMLTV output and Canal+ programmes
+        run: |
+          python - <<'PY'
+          import gzip
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+          from pathlib import Path
+          path = Path("epg.xml.gz")
+          with gzip.open(path, "rb") as stream:
+              root = ET.parse(stream).getroot()
+          assert root.tag == "tv"
+          channels = {c.get("id") for c in root.findall("channel")}
+          counts = Counter(p.get("channel") for p in root.findall("programme"))
+          assert channels and counts
+          print(f"Total channels: {len(channels)}; programmes: {sum(counts.values())}; compressed bytes: {path.stat().st_size}")
+          for cid in sorted(channels):
+              if "canal" in cid.lower() and ("sport" in cid.lower() or "foot" in cid.lower() or "formula" in cid.lower()):
+                  print(f"{cid}: {counts[cid]} programmes")
+          assert any("canal" in cid.lower() and "sport" in cid.lower() and counts[cid] > 0 for cid in channels), "No Canal+ Sport guide programmes"
+          PY

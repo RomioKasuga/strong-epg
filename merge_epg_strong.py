@@ -10,6 +10,7 @@ import os
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SOURCES = {
@@ -85,6 +86,31 @@ def main():
             cid = channel.get("id")
             if cid and cid not in channels:
                 channels[cid] = channel
+        # The general US feed is very large: retain only the next 48 hours.
+        # Keep other countries and specialized feeds at their full coverage.
+        if country == "US":
+            now = datetime.now(timezone.utc)
+            cutoff = now + timedelta(hours=48)
+            filtered = []
+            for programme in source_programmes:
+                raw_start = programme.get("start") or ""
+                try:
+                    # XMLTV timestamps may include a timezone offset.
+                    when = datetime.strptime(raw_start[:14], "%Y%m%d%H%M%S")
+                    offset_text = raw_start[15:].strip()
+                    if len(offset_text) == 5 and offset_text[0] in "+-" and offset_text[1:].isdigit():
+                        sign = 1 if offset_text[0] == "+" else -1
+                        offset = timedelta(hours=int(offset_text[1:3]), minutes=int(offset_text[3:5]))
+                        when = when.replace(tzinfo=timezone(sign * offset))
+                    else:
+                        when = when.replace(tzinfo=timezone.utc)
+                    when = when.astimezone(timezone.utc)
+                except (ValueError, OverflowError):
+                    continue
+                if now - timedelta(hours=2) <= when <= cutoff:
+                    filtered.append(programme)
+            print(f"[US] 48h window: {len(filtered)} / {len(source_programmes)} programmes", flush=True)
+            source_programmes = filtered
         for programme in source_programmes:
             cid = programme.get("channel")
             key = (cid, programme.get("start"), programme.get("stop"))

@@ -20,6 +20,7 @@ SOURCES = {
 }
 EXTRA_FR_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_FR1.xml.gz"
 EXTRA_PT_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_PT1.xml.gz"
+EXTRA_UK_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"
 OUTPUT = Path("epg.xml.gz")
 CSV_PATH = Path("correspondances_strong_epg.csv")
 MAX_SIZE = 95 * 1024 * 1024
@@ -91,7 +92,7 @@ def main():
         stats[country] = len(source_programmes)
 
     # Sources complémentaires optionnelles : FR et PT.
-    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE)):
+    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE), ("UK-EPGShare", EXTRA_UK_SOURCE)):
         try:
             extra_channels, extra_programmes = download(extra_name, extra_url)
             for channel in extra_channels:

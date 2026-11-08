@@ -19,6 +19,7 @@ SOURCES = {
     "US": "https://iptv-epg.org/files/epg-us.xml",
 }
 EXTRA_FR_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_FR1.xml.gz"
+EXTRA_PT_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_PT1.xml.gz"
 OUTPUT = Path("epg.xml.gz")
 CSV_PATH = Path("correspondances_strong_epg.csv")
 MAX_SIZE = 95 * 1024 * 1024
@@ -89,22 +90,23 @@ def main():
                 programmes.append(programme)
         stats[country] = len(source_programmes)
 
-    # Source française complémentaire : sans interrompre le guide si indisponible.
-    try:
-        extra_channels, extra_programmes = download("FR-EPGShare", EXTRA_FR_SOURCE)
-        for channel in extra_channels:
-            cid = channel.get("id")
-            if cid and cid not in channels:
-                channels[cid] = channel
-        for programme in extra_programmes:
-            cid = programme.get("channel")
-            key = (cid, programme.get("start"), programme.get("stop"))
-            if cid in channels and key not in seen:
-                seen.add(key)
-                programmes.append(programme)
-        stats["FR-EPGShare"] = len(extra_programmes)
-    except Exception as exc:
-        print(f"[FR-EPGShare] Source optionnelle indisponible : {exc}", flush=True)
+    # Sources complémentaires optionnelles : FR et PT.
+    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE)):
+        try:
+            extra_channels, extra_programmes = download(extra_name, extra_url)
+            for channel in extra_channels:
+                cid = channel.get("id")
+                if cid and cid not in channels:
+                    channels[cid] = channel
+            for programme in extra_programmes:
+                cid = programme.get("channel")
+                key = (cid, programme.get("start"), programme.get("stop"))
+                if cid in channels and key not in seen:
+                    seen.add(key)
+                    programmes.append(programme)
+            stats[extra_name] = len(extra_programmes)
+        except Exception as exc:
+            print(f"[{extra_name}] Source optionnelle indisponible : {exc}", flush=True)
 
     aliases = read_verified_aliases()
     aliases.update(VERIFIED)

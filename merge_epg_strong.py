@@ -1,4 +1,4 @@
-"""Fusion XMLTV FR/PT/GB/US avec alias Strong sûrs.
+"""Fusion XMLTV FR/PT avec alias Strong sûrs.
 
 Seuls les identifiants Strong explicites et validés sont utilisés.
 Les lignes ambiguës ou à vérifier sont ignorées volontairement.
@@ -16,14 +16,9 @@ from pathlib import Path
 SOURCES = {
     "FR": "https://iptv-epg.org/files/epg-fr.xml",
     "PT": "https://iptv-epg.org/files/epg-pt.xml",
-    "GB": "https://iptv-epg.org/files/epg-gb.xml",
-    "US": "https://iptv-epg.org/files/epg-us.xml",
 }
 EXTRA_FR_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_FR1.xml.gz"
 EXTRA_PT_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_PT1.xml.gz"
-EXTRA_UK_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"
-EXTRA_US_SPORTS_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_US_SPORTS1.xml.gz"
-EXTRA_US2_SOURCE = "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz"
 OUTPUT = Path("epg.xml.gz")
 CSV_PATH = Path("correspondances_strong_epg.csv")
 MAX_SIZE = 95 * 1024 * 1024
@@ -120,7 +115,7 @@ def main():
         stats[country] = len(source_programmes)
 
     # Sources complémentaires optionnelles : FR et PT.
-    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE), ("UK-EPGShare", EXTRA_UK_SOURCE), ("US-Sports-EPGShare", EXTRA_US_SPORTS_SOURCE), ("US2-EPGShare", EXTRA_US2_SOURCE)):
+    for extra_name, extra_url in (("FR-EPGShare", EXTRA_FR_SOURCE), ("PT-EPGShare", EXTRA_PT_SOURCE)):
         try:
             extra_channels, extra_programmes = download(extra_name, extra_url)
             for channel in extra_channels:
@@ -138,6 +133,7 @@ def main():
             print(f"[{extra_name}] Source optionnelle indisponible : {exc}", flush=True)
 
     aliases = read_verified_aliases()
+    print(f"Correspondances Strong validées dans le CSV : {len(aliases)}", flush=True)
     aliases.update(VERIFIED)
     by_source = defaultdict(list)
     rejected = Counter()
@@ -164,7 +160,7 @@ def main():
             added += 1
 
     programmes.sort(key=lambda p: (p.get("channel", ""), p.get("start", "")))
-    root = ET.Element("tv", {"generator-info-name": "Strong EPG FR/PT/GB/US"})
+    root = ET.Element("tv", {"generator-info-name": "Strong EPG FR/PT"})
     for channel in channels.values():
         root.append(channel)
     for programme in programmes:
